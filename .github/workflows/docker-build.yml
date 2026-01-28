@@ -9,6 +9,9 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    # Added permissions to allow the bot to create new tags in your repo
+    permissions:
+      contents: write 
 
     steps:
     # Step 1: Checkout repository
@@ -16,11 +19,21 @@ jobs:
       uses: actions/checkout@v4
       with:
         lfs: true
+        fetch-depth: '0' # Added to allow version counter to see previous tags
 
     # Step 1.5: Pull LFS files (Safety step)
     - name: Pull LFS files
       run: git lfs pull
-        
+
+    # --- NEW STEP: Auto-Increment Version ---
+    - name: Bump version and push tag
+      id: tag_version
+      uses: anothrNick/github-tag-action@1.64.0
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        WITH_V: true
+        DEFAULT_BUMP: patch # This ensures v1.0.1 -> v1.0.2
+
     # Step 2: Set up Docker Buildx
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v3
@@ -32,12 +45,10 @@ jobs:
         username: ${{ secrets.DOCKER_USERNAME }}
         password: ${{ secrets.DOCKER_PASSWORD }}
 
-    # Step 4: Build Docker image
-    - name: Build Docker image
+    # Step 4: Build & Push Docker image (Updated with multiple tags)
+    - name: Build and Push Docker image
       run: |
-        docker build -t xavierkk/sports-classifier:1.0.1 .
-
-    # Step 5: Push Docker image to DockerHub
-    - name: Push Docker image
-      run: |
-        docker push xavierkk/sports-classifier:1.0.1
+        docker build -t xavierkk/sports-classifier:latest \
+                     -t xavierkk/sports-classifier:${{ steps.tag_version.outputs.new_tag }} .
+        docker push xavierkk/sports-classifier:latest
+        docker push xavierkk/sports-classifier:${{ steps.tag_version.outputs.new_tag }}
