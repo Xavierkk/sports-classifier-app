@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Sports Classifier</title>
+    <style>
+        body { font-family: sans-serif; text-align: center; margin-top: 50px; background-color: #f4f4f9; }
+        .container { background: white; padding: 30px; border-radius: 10px; display: inline-block; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        input { margin: 20px 0; }
+        button { background: #007bff; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; }
+        #result { margin-top: 20px; font-weight: bold; font-size: 1.2em; color: #333; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🏅 Sports Classifier</h1>
+        <p>Upload a photo to identify the sport</p>
+        <input type="file" id="imageInput" accept="image/*">
+        <br>
+        <button onclick="uploadImage()">Predict Sport</button>
+        <div id="result"></div>
+    </div>
+
+    <script>
+        async function uploadImage() {
+            const fileInput = document.getElementById('imageInput');
+            const resultDiv = document.getElementById('result');
+            if (fileInput.files.length === 0) return alert("Please select a file!");
+
+            resultDiv.innerHTML = "⏳ Classifying...";
+            const formData = new FormData();
+            formData.append('file', fileInput.files[0]);
+
+            const response = await fetch('/predict', { method: 'POST', body: formData });
+            const data = await response.json();
+            
+            if (data.sport) {
+                resultDiv.innerHTML = `Prediction: <span style="color: #007bff;">${data.sport}</span>`;
+            } else {
+                resultDiv.innerHTML = "❌ Error identifying image.";
+            }
+        }
+    </script>
+</body>
+</html>

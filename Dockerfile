@@ -13,11 +13,12 @@ WORKDIR /app
 ARG APP_VERSION=v1.0.0
 ENV APP_VERSION=$APP_VERSION
 
-
 COPY --from=builder /install /usr/local
 COPY app.py .
 COPY resnet50_sports.pth .
 COPY label_encoder.joblib .
+# ADDED: This line ensures your web interface folder is copied to Render
+COPY templates/ ./templates/
 
 ENV MODEL_PATH=resnet50_sports.pth
 ENV PYTHONUNBUFFERED=1

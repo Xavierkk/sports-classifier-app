@@ -10,12 +10,23 @@ import torch
 import torch.nn as nn
 from torchvision import models, transforms
 from PIL import Image
-from fastapi import FastAPI, File, UploadFile, HTTPException
+from fastapi import FastAPI, File, UploadFile, HTTPException, Request
+from fastapi.responses import HTMLResponse
+from fastapi.templating import Jinja2Templates
 
 # --- CONFIGURATION ---
 MODEL_PATH = os.getenv("MODEL_PATH", "resnet50_sports.pth")
 # APP_VERSION is passed from your Dockerfile/GitHub Actions
 APP_VERSION = os.getenv("APP_VERSION", "v1.0.1") 
+
+# --- INITIALIZATION ---
+app = FastAPI(
+    title="Sports Classifier API",
+    version=APP_VERSION
+)
+
+# Set up templates folder
+templates = Jinja2Templates(directory="templates")
 
 # --- MODEL ARCHITECTURE ---
 class SportsResNet(nn.Module):
@@ -45,12 +56,6 @@ class SportsResNet(nn.Module):
         x = self.classifier(x)
         return x
 
-# --- INITIALIZATION ---
-app = FastAPI(
-    title="Sports Classifier API",
-    version=APP_VERSION
-)
-
 device = torch.device("cpu")
 model = SportsResNet(num_classes=100)
 
@@ -76,15 +81,10 @@ preprocess = transforms.Compose([
 
 # --- ROUTES ---
 
-@app.get("/")
-def home():
-    """Root endpoint to verify the API is online."""
-    return {
-        "status": "online",
-        "message": "Sports Classifier API is Live!",
-        "version": APP_VERSION,
-        "docs": "/docs"
-    }
+@app.get("/", response_class=HTMLResponse)
+async def home(request: Request):
+    """Serves the interactive web interface."""
+    return templates.TemplateResponse("index.html", {"request": request, "version": APP_VERSION})
 
 @app.get("/health")
 def health():
