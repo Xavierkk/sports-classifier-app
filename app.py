@@ -10,11 +10,14 @@ from torchvision import models, transforms
 from PIL import Image
 import io
 import joblib
-import os
 
+# --- UPDATED: Read dynamic settings ---
 MODEL_PATH = os.getenv("MODEL_PATH", "resnet50_sports.pth")
+# This grabs the v1.0.x tag from Docker during build
+APP_VERSION = os.getenv("APP_VERSION", "v1.0.1") 
 
 class SportsResNet(nn.Module):
+    # ... keep your class exactly as it is ...
     def __init__(self, num_classes=100):
         super().__init__()
         self.base_model = models.resnet50(weights=None)
@@ -41,16 +44,17 @@ class SportsResNet(nn.Module):
         x = self.classifier(x)
         return x
 
-app = FastAPI()
+app = FastAPI(title="Sports Classifier", version=APP_VERSION)
 
 @app.get("/")
 def home():
     return {
         "message": "Sports Classifier API is Live!",
         "usage": "Visit /docs to test the model.",
-        "version": "1.0.1"
+        "version": APP_VERSION  # UPDATED: Now uses the auto-incremented version
     }
 
+# ... keep your model loading logic ...
 device = torch.device("cpu")
 model = SportsResNet(num_classes=100)
 model.load_state_dict(torch.load(MODEL_PATH, map_location=device))
@@ -83,3 +87,10 @@ async def predict(file: UploadFile = File(...)):
 
     sport_name = le.inverse_transform([pred.item()])[0]
     return {"sport": sport_name}
+
+# --- NEW: This block is crucial for Render ---
+if __name__ == "__main__":
+    import uvicorn
+    # Grab the port Render provides, or default to 10000
+    port = int(os.environ.get("PORT", 10000))
+    uvicorn.run(app, host="0.0.0.0", port=port)
