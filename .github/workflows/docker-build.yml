@@ -45,10 +45,11 @@ jobs:
         username: ${{ secrets.DOCKER_USERNAME }}
         password: ${{ secrets.DOCKER_PASSWORD }}
 
-    # Step 4: Build & Push Docker image (Updated with multiple tags)
+    # Step 4: Build & Push Docker image (Updated with build-arg and tags)
     - name: Build and Push Docker image
       run: |
-        docker build -t xavierkk/sports-classifier:latest \
+        docker build --build-arg APP_VERSION=${{ steps.tag_version.outputs.new_tag }} \
+                     -t xavierkk/sports-classifier:latest \
                      -t xavierkk/sports-classifier:${{ steps.tag_version.outputs.new_tag }} .
         docker push xavierkk/sports-classifier:latest
         docker push xavierkk/sports-classifier:${{ steps.tag_version.outputs.new_tag }}
