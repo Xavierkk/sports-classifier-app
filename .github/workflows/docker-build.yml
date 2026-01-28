@@ -14,7 +14,13 @@ jobs:
     # Step 1: Checkout repository
     - name: Checkout repository
       uses: actions/checkout@v4
+      with:
+        lfs: true
 
+    # Step 1.5: Pull LFS files (Safety step)
+    - name: Pull LFS files
+      run: git lfs pull
+        
     # Step 2: Set up Docker Buildx
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v3
