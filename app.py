@@ -43,6 +43,14 @@ class SportsResNet(nn.Module):
 
 app = FastAPI()
 
+@app.get("/")
+def home():
+    return {
+        "message": "Sports Classifier API is Live!",
+        "usage": "Visit /docs to test the model.",
+        "version": "1.0.1"
+    }
+
 device = torch.device("cpu")
 model = SportsResNet(num_classes=100)
 model.load_state_dict(torch.load(MODEL_PATH, map_location=device))
