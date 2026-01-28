@@ -53,3 +53,9 @@ jobs:
                      -t xavierkk/sports-classifier:${{ steps.tag_version.outputs.new_tag }} .
         docker push xavierkk/sports-classifier:latest
         docker push xavierkk/sports-classifier:${{ steps.tag_version.outputs.new_tag }}
+
+    # Step 5: Trigger Render to pull the new image
+    - name: Trigger Render Deploy
+      if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+      run: |
+        curl -f -X POST "${{ secrets.RENDER_DEPLOY_HOOK_URL }}"
