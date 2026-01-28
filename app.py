@@ -1,23 +1,24 @@
 import os
-# Must be set BEFORE importing torch
+import io
+import joblib
+
+# Must be set BEFORE importing torch to optimize CPU usage on Render
 os.environ["MKL_NUM_THREADS"] = "1"
 os.environ["OMP_NUM_THREADS"] = "1"
 
-from fastapi import FastAPI, File, UploadFile
 import torch
 import torch.nn as nn
 from torchvision import models, transforms
 from PIL import Image
-import io
-import joblib
+from fastapi import FastAPI, File, UploadFile, HTTPException
 
-# --- UPDATED: Read dynamic settings ---
+# --- CONFIGURATION ---
 MODEL_PATH = os.getenv("MODEL_PATH", "resnet50_sports.pth")
-# This grabs the v1.0.x tag from Docker during build
+# APP_VERSION is passed from your Dockerfile/GitHub Actions
 APP_VERSION = os.getenv("APP_VERSION", "v1.0.1") 
 
+# --- MODEL ARCHITECTURE ---
 class SportsResNet(nn.Module):
-    # ... keep your class exactly as it is ...
     def __init__(self, num_classes=100):
         super().__init__()
         self.base_model = models.resnet50(weights=None)
@@ -44,40 +45,63 @@ class SportsResNet(nn.Module):
         x = self.classifier(x)
         return x
 
-app = FastAPI(title="Sports Classifier", version=APP_VERSION)
+# --- INITIALIZATION ---
+app = FastAPI(
+    title="Sports Classifier API",
+    version=APP_VERSION
+)
 
-@app.get("/")
-def home():
-    return {
-        "message": "Sports Classifier API is Live!",
-        "usage": "Visit /docs to test the model.",
-        "version": APP_VERSION  # UPDATED: Now uses the auto-incremented version
-    }
-
-# ... keep your model loading logic ...
 device = torch.device("cpu")
 model = SportsResNet(num_classes=100)
-model.load_state_dict(torch.load(MODEL_PATH, map_location=device))
-model.eval()
 
-le = joblib.load("label_encoder.joblib")
+# Load model weights safely
+if os.path.exists(MODEL_PATH):
+    model.load_state_dict(torch.load(MODEL_PATH, map_location=device))
+    model.eval()
+else:
+    print(f"WARNING: Model file not found at {MODEL_PATH}")
 
+# Load Label Encoder
+if os.path.exists("label_encoder.joblib"):
+    le = joblib.load("label_encoder.joblib")
+else:
+    le = None
+    print("WARNING: label_encoder.joblib not found")
+
+# Image Preprocessing
 preprocess = transforms.Compose([
     transforms.Resize((224, 224)),
     transforms.ToTensor(),
 ])
 
+# --- ROUTES ---
+
+@app.get("/")
+def home():
+    """Root endpoint to verify the API is online."""
+    return {
+        "status": "online",
+        "message": "Sports Classifier API is Live!",
+        "version": APP_VERSION,
+        "docs": "/docs"
+    }
+
 @app.get("/health")
 def health():
-    return {"status": "ok"}
+    """Health check for Render monitoring."""
+    return {"status": "ok", "version": APP_VERSION}
 
 @app.post("/predict")
 async def predict(file: UploadFile = File(...)):
+    """Upload an image to predict the sport."""
+    if le is None:
+        raise HTTPException(status_code=500, detail="Label encoder not loaded.")
+        
     try:
         data = await file.read()
         image = Image.open(io.BytesIO(data)).convert("RGB")
     except Exception:
-        return {"error": "Invalid image file"}
+        return {"error": "Invalid image file. Please upload a valid JPG or PNG."}
 
     input_tensor = preprocess(image).unsqueeze(0).to(device)
 
@@ -86,11 +110,15 @@ async def predict(file: UploadFile = File(...)):
         _, pred = torch.max(output, 1)
 
     sport_name = le.inverse_transform([pred.item()])[0]
-    return {"sport": sport_name}
+    return {
+        "sport": sport_name,
+        "version": APP_VERSION
+    }
 
-# --- NEW: This block is crucial for Render ---
+# --- PRODUCTION SERVER SETUP ---
 if __name__ == "__main__":
     import uvicorn
-    # Grab the port Render provides, or default to 10000
+    # Render assigns a port via the PORT environment variable
     port = int(os.environ.get("PORT", 10000))
+    # Run the server on 0.0.0.0 to be accessible externally
     uvicorn.run(app, host="0.0.0.0", port=port)
