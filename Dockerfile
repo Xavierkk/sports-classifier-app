@@ -25,7 +25,8 @@ COPY label_encoder.joblib .
 # Set environment variable
 ENV MODEL_PATH=resnet50_sports.pth
 
+# Expose a port (optional, for clarity)
 EXPOSE 80
 
-# Start the server
-CMD ["gunicorn", "-k", "uvicorn.workers.UvicornWorker", "app:app", "--bind", "0.0.0.0:80", "--workers", "2"]
+# Use $PORT environment variable for Render
+CMD ["gunicorn", "-k", "uvicorn.workers.UvicornWorker", "app:app", "--bind", "0.0.0.0:$PORT", "--workers", "2"]
