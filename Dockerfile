@@ -28,4 +28,4 @@ ENV MODEL_PATH=resnet50_sports.pth
 ENV PYTHONUNBUFFERED=1
 
 # 1 worker is mandatory for 512MB RAM
-CMD ["gunicorn", "-k", "uvicorn.workers.UvicornWorker", "app:app", "--bind", "0.0.0.0:$PORT", "--workers", "1", "--timeout", "120"]
+CMD gunicorn -k uvicorn.workers.UvicornWorker app:app --bind 0.0.0.0:$PORT --workers 1 --timeout 120
