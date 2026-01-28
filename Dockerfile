@@ -29,4 +29,4 @@ ENV MODEL_PATH=resnet50_sports.pth
 EXPOSE 80
 
 # Use $PORT environment variable for Render
-CMD ["gunicorn", "-k", "uvicorn.workers.UvicornWorker", "app:app", "--bind", "0.0.0.0:$PORT", "--workers", "2"]
+CMD gunicorn -k uvicorn.workers.UvicornWorker app:app --bind 0.0.0.0:$PORT --workers 2
