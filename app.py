@@ -1,8 +1,11 @@
 import os
 import io
 import joblib
+import numpy as np
+import requests
+from io import BytesIO
 
-# Must be set BEFORE importing torch to optimize CPU usage on Render
+# Optimization for Render's limited CPU resources
 os.environ["MKL_NUM_THREADS"] = "1"
 os.environ["OMP_NUM_THREADS"] = "1"
 
@@ -13,25 +16,28 @@ from PIL import Image
 from fastapi import FastAPI, File, UploadFile, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
+from sqlalchemy import create_engine
 
 # --- CONFIGURATION ---
-MODEL_PATH = os.getenv("MODEL_PATH", "resnet50_sports.pth")
-# APP_VERSION is passed from your Dockerfile/GitHub Actions
-APP_VERSION = os.getenv("APP_VERSION", "v1.0.1") 
+MODEL_PATH = "resnet50_sports.pth"
+ENCODER_PATH = "label_encoder.joblib"
+# Replace with your actual Supabase Password
+DB_URI = DB_URI = os.getenv("DATABASE_URL", "sqlite:///./test.db")
 
 # --- INITIALIZATION ---
-app = FastAPI(
-    title="Sports Classifier API",
-    version=APP_VERSION
-)
-
-# Set up templates folder
+app = FastAPI(title="Sports Classifier API", version="1.0.1")
 templates = Jinja2Templates(directory="templates")
+device = torch.device("cpu")
+
+# --- DATABASE ENGINE ---
+# This is ready for when you want to query your image_metadata table
+engine = create_engine(DB_URI)
 
 # --- MODEL ARCHITECTURE ---
 class SportsResNet(nn.Module):
     def __init__(self, num_classes=100):
         super().__init__()
+        # Initialize ResNet50 without pre-trained weights to save memory
         self.base_model = models.resnet50(weights=None)
         self.base_model.fc = nn.Identity()
         self.avgpool = nn.AdaptiveAvgPool2d(1)
@@ -56,69 +62,75 @@ class SportsResNet(nn.Module):
         x = self.classifier(x)
         return x
 
-device = torch.device("cpu")
-model = SportsResNet(num_classes=100)
+# --- LOAD ASSETS SAFELY ---
+# 1. Load Label Encoder
+if os.path.exists(ENCODER_PATH):
+    try:
+        le = joblib.load(ENCODER_PATH)
+        # Dynamically set class count based on encoder
+        num_classes = len(le.classes_)
+    except Exception as e:
+        print(f"CRITICAL ERROR loading encoder: {e}")
+        le = None
+        num_classes = 100 # Fallback
+else:
+    le = None
+    num_classes = 100
+    print("WARNING: label_encoder.joblib not found")
 
-# Load model weights safely
+# 2. Load Model
+model = SportsResNet(num_classes=num_classes)
 if os.path.exists(MODEL_PATH):
     model.load_state_dict(torch.load(MODEL_PATH, map_location=device))
     model.eval()
+    print("✅ Model weights loaded successfully.")
 else:
-    print(f"WARNING: Model file not found at {MODEL_PATH}")
-
-# Load Label Encoder
-if os.path.exists("label_encoder.joblib"):
-    le = joblib.load("label_encoder.joblib")
-else:
-    le = None
-    print("WARNING: label_encoder.joblib not found")
+    print(f"❌ WARNING: Model file not found at {MODEL_PATH}")
 
 # Image Preprocessing
 preprocess = transforms.Compose([
     transforms.Resize((224, 224)),
     transforms.ToTensor(),
+    transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
 ])
 
 # --- ROUTES ---
 
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
-    """Serves the interactive web interface."""
-    return templates.TemplateResponse("index.html", {"request": request, "version": APP_VERSION})
+    return templates.TemplateResponse("index.html", {"request": request, "version": "1.0.1"})
 
 @app.get("/health")
 def health():
-    """Health check for Render monitoring."""
-    return {"status": "ok", "version": APP_VERSION}
+    return {"status": "ok", "db_connected": True if engine else False}
 
 @app.post("/predict")
 async def predict(file: UploadFile = File(...)):
-    """Upload an image to predict the sport."""
     if le is None:
-        raise HTTPException(status_code=500, detail="Label encoder not loaded.")
+        raise HTTPException(status_code=500, detail="Label encoder not available.")
         
     try:
-        data = await file.read()
-        image = Image.open(io.BytesIO(data)).convert("RGB")
+        content = await file.read()
+        image = Image.open(io.BytesIO(content)).convert("RGB")
     except Exception:
-        return {"error": "Invalid image file. Please upload a valid JPG or PNG."}
+        raise HTTPException(status_code=400, detail="Invalid image file.")
 
+    # Transformation
     input_tensor = preprocess(image).unsqueeze(0).to(device)
 
+    # Prediction
     with torch.no_grad():
         output = model(input_tensor)
         _, pred = torch.max(output, 1)
 
     sport_name = le.inverse_transform([pred.item()])[0]
+    
     return {
         "sport": sport_name,
-        "version": APP_VERSION
+        "confidence": "Prediction successful"
     }
 
-# --- PRODUCTION SERVER SETUP ---
 if __name__ == "__main__":
     import uvicorn
-    # Render assigns a port via the PORT environment variable
     port = int(os.environ.get("PORT", 10000))
-    # Run the server on 0.0.0.0 to be accessible externally
     uvicorn.run(app, host="0.0.0.0", port=port)
