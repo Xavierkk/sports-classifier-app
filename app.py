@@ -1,14 +1,7 @@
 import os
 import io
-import joblib
+import json  # Added JSON support
 import numpy as np
-import requests
-from io import BytesIO
-
-# Optimization for Render's limited CPU resources
-os.environ["MKL_NUM_THREADS"] = "1"
-os.environ["OMP_NUM_THREADS"] = "1"
-
 import torch
 import torch.nn as nn
 from torchvision import models, transforms
@@ -18,26 +11,25 @@ from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import create_engine
 
+# Optimization for Render's limited CPU resources
+os.environ["MKL_NUM_THREADS"] = "1"
+os.environ["OMP_NUM_THREADS"] = "1"
+
 # --- CONFIGURATION ---
 MODEL_PATH = "resnet50_sports.pth"
-ENCODER_PATH = "label_encoder.joblib"
-# Replace with your actual Supabase Password
-DB_URI = DB_URI = os.getenv("DATABASE_URL", "sqlite:///./test.db")
+LABELS_PATH = "labels.json"  # Changed from .joblib
+DB_URI = os.getenv("DATABASE_URL", "sqlite:///./test.db")
 
 # --- INITIALIZATION ---
-app = FastAPI(title="Sports Classifier API", version="1.0.1")
+app = FastAPI(title="Sports Classifier API", version="1.0.2")
 templates = Jinja2Templates(directory="templates")
 device = torch.device("cpu")
-
-# --- DATABASE ENGINE ---
-# This is ready for when you want to query your image_metadata table
 engine = create_engine(DB_URI)
 
 # --- MODEL ARCHITECTURE ---
 class SportsResNet(nn.Module):
     def __init__(self, num_classes=100):
         super().__init__()
-        # Initialize ResNet50 without pre-trained weights to save memory
         self.base_model = models.resnet50(weights=None)
         self.base_model.fc = nn.Identity()
         self.avgpool = nn.AdaptiveAvgPool2d(1)
@@ -63,20 +55,20 @@ class SportsResNet(nn.Module):
         return x
 
 # --- LOAD ASSETS SAFELY ---
-# 1. Load Label Encoder
-if os.path.exists(ENCODER_PATH):
+# 1. Load Labels from JSON
+categories = []
+if os.path.exists(LABELS_PATH):
     try:
-        le = joblib.load(ENCODER_PATH)
-        # Dynamically set class count based on encoder
-        num_classes = len(le.classes_)
+        with open(LABELS_PATH, 'r') as f:
+            categories = json.load(f)
+        num_classes = len(categories)
+        print(f"✅ Successfully loaded {num_classes} categories from JSON.")
     except Exception as e:
-        print(f"CRITICAL ERROR loading encoder: {e}")
-        le = None
-        num_classes = 100 # Fallback
+        print(f"❌ ERROR loading labels: {e}")
+        num_classes = 100
 else:
-    le = None
     num_classes = 100
-    print("WARNING: label_encoder.joblib not found")
+    print(f"⚠️ WARNING: {LABELS_PATH} not found!")
 
 # 2. Load Model
 model = SportsResNet(num_classes=num_classes)
@@ -98,16 +90,12 @@ preprocess = transforms.Compose([
 
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
-    return templates.TemplateResponse("index.html", {"request": request, "version": "1.0.1"})
-
-@app.get("/health")
-def health():
-    return {"status": "ok", "db_connected": True if engine else False}
+    return templates.TemplateResponse("index.html", {"request": request, "version": "1.0.2"})
 
 @app.post("/predict")
 async def predict(file: UploadFile = File(...)):
-    if le is None:
-        raise HTTPException(status_code=500, detail="Label encoder not available.")
+    if not categories:
+        raise HTTPException(status_code=500, detail="Sport categories not loaded.")
         
     try:
         content = await file.read()
@@ -115,15 +103,18 @@ async def predict(file: UploadFile = File(...)):
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid image file.")
 
-    # Transformation
     input_tensor = preprocess(image).unsqueeze(0).to(device)
 
-    # Prediction
     with torch.no_grad():
         output = model(input_tensor)
         _, pred = torch.max(output, 1)
+        predicted_index = pred.item()
 
-    sport_name = le.inverse_transform([pred.item()])[0]
+    # Use the JSON list to get the name instead of le.inverse_transform
+    try:
+        sport_name = categories[predicted_index]
+    except IndexError:
+        sport_name = "Unknown Class"
     
     return {
         "sport": sport_name,
