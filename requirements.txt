@@ -9,3 +9,5 @@ torchvision==0.16.2
 joblib
 pillow
 gunicorn
+sqlalchemy
+psycopg2-binary
