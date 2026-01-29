@@ -16,7 +16,7 @@ ENV APP_VERSION=$APP_VERSION
 COPY --from=builder /install /usr/local
 COPY app.py .
 COPY resnet50_sports.pth .
-COPY label_encoder.joblib .
+COPY labels.json .
 # ADDED: This line ensures your web interface folder is copied to Render
 COPY templates/ ./templates/
 
